@@ -1,0 +1,10 @@
+moviepy==1.0.3
+Pillow
+requests
+python-dotenv
+imageio
+imageio-ffmpeg
+numpy
+decorator
+proglog
+tqdm
