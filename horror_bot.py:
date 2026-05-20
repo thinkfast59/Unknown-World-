@@ -1,0 +1,267 @@
+import os
+import random
+import textwrap
+import requests
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
+from moviepy.editor import *
+
+W, H = 1080, 1920
+DURATION = 22
+
+PAGE_NAME = "Unknown World"
+PAGE_NAME_SI = "නොදන්නා ලෝකය"
+FULL_PAGE_NAME = "Unknown World | නොදන්නා ලෝකය"
+
+BASE = Path(__file__).parent
+ASSETS = BASE / "assets"
+OUTPUT = BASE / "output"
+ASSETS.mkdir(exist_ok=True)
+OUTPUT.mkdir(exist_ok=True)
+
+PIXABAY_KEY = os.getenv("PIXABAY_KEY", "")
+PEXELS_KEY = os.getenv("PEXELS_KEY", "")
+
+STORIES = [
+    {
+        "hook": "මේ ගෙදරට රෑ 12න් පස්සේ කවුරුත් යන්නේ නෑ...",
+        "body": "ගමේ මිනිස්සු කියන්නේ හැම රෑම උඩ මාලයෙන් අමුතු ශබ්ද ඇහෙනවා කියලා.",
+        "end": "ඔයා මෙතනට තනියම යයිද?"
+    },
+    {
+        "hook": "CCTV එකට අහුවුණු අමුතුම දර්ශනයක්...",
+        "body": "මුලින් කිසිම දෙයක් පේන්නෙ නෑ. ඒත් හොඳට බලද්දී පිටිපස්සේ සෙවණැල්ලක් චලනය වෙනවා.",
+        "end": "ඔයාටත් ඒක පේනවද?"
+    },
+    {
+        "hook": "මේ කැලේ ඇතුළට ගිය අය ආයෙත් ආවේ නෑ කියනවා...",
+        "body": "රෑ වෙද්දී අමුතු හඬවල් ඇහෙනවා කියලා ගමේ අය අදටත් කියනවා.",
+        "end": "මේක ඇත්තද?"
+    },
+    {
+        "hook": "රෑ 3ට මේ පාරෙන් යන්න කවුරුත් කැමති නෑ...",
+        "body": "සුදු ඇඳුම් ඇඳපු කෙනෙක් පාර අයිනේ හිටගෙන ඉන්නවා කියලා ගමේ අය කියනවා.",
+        "end": "ඔයා මෙහෙම කතාවක් අහලා තියෙනවද?"
+    }
+]
+
+VIDEO_KEYWORDS = [
+    "dark forest",
+    "abandoned house",
+    "scary hallway",
+    "fog night",
+    "rain night",
+    "dark road"
+]
+
+def font_path():
+    paths = [
+        "/usr/share/fonts/truetype/noto/NotoSansSinhala-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansSinhala-Regular.ttf",
+        "NotoSansSinhala-Bold.ttf",
+        "NotoSansSinhala-Regular.ttf"
+    ]
+    for p in paths:
+        if os.path.exists(p):
+            return p
+    return None
+
+FONT = font_path()
+
+def download_file(url, path):
+    r = requests.get(url, timeout=40)
+    r.raise_for_status()
+    path.write_bytes(r.content)
+    return path
+
+def get_pixabay_video():
+    if not PIXABAY_KEY:
+        return None
+
+    q = random.choice(VIDEO_KEYWORDS)
+    url = "https://pixabay.com/api/videos/"
+    params = {
+        "key": PIXABAY_KEY,
+        "q": q,
+        "orientation": "vertical",
+        "per_page": 20,
+        "safesearch": "true"
+    }
+
+    data = requests.get(url, params=params, timeout=30).json()
+    hits = data.get("hits", [])
+    if not hits:
+        return None
+
+    item = random.choice(hits)
+    videos = item.get("videos", {})
+    video_url = (
+        videos.get("large", {}).get("url")
+        or videos.get("medium", {}).get("url")
+        or videos.get("small", {}).get("url")
+    )
+
+    if not video_url:
+        return None
+
+    return download_file(video_url, ASSETS / "background.mp4")
+
+def get_pexels_video():
+    if not PEXELS_KEY:
+        return None
+
+    q = random.choice(VIDEO_KEYWORDS)
+    url = "https://api.pexels.com/videos/search"
+    headers = {"Authorization": PEXELS_KEY}
+    params = {"query": q, "orientation": "portrait", "per_page": 10}
+
+    data = requests.get(url, headers=headers, params=params, timeout=30).json()
+    videos = data.get("videos", [])
+    if not videos:
+        return None
+
+    item = random.choice(videos)
+    files = item.get("video_files", [])
+    files = sorted(files, key=lambda x: x.get("width", 0), reverse=True)
+
+    if not files:
+        return None
+
+    return download_file(files[0]["link"], ASSETS / "background.mp4")
+
+def make_fallback_background():
+    img_path = ASSETS / "fallback.png"
+    img = Image.new("RGB", (W, H), (5, 5, 10))
+    draw = ImageDraw.Draw(img)
+
+    for i in range(0, H, 12):
+        shade = int(5 + i / H * 35)
+        draw.rectangle((0, i, W, i + 12), fill=(shade // 2, shade // 2, shade))
+
+    img.save(img_path)
+    return ImageClip(str(img_path)).set_duration(DURATION)
+
+def make_text_png(story):
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    title_font = ImageFont.truetype(FONT, 72) if FONT else ImageFont.load_default()
+    body_font = ImageFont.truetype(FONT, 56) if FONT else ImageFont.load_default()
+    small_font = ImageFont.truetype(FONT, 42) if FONT else ImageFont.load_default()
+    brand_font = ImageFont.truetype(FONT, 38) if FONT else ImageFont.load_default()
+
+    def center_text(text, y, font, fill=(255, 255, 255, 255), width=18):
+        lines = []
+        for part in text.split("\n"):
+            lines.extend(textwrap.wrap(part, width=width))
+
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            tw = bbox[2] - bbox[0]
+            x = (W - tw) // 2
+            draw.text((x + 5, y + 5), line, font=font, fill=(0, 0, 0, 230))
+            draw.text((x, y), line, font=font, fill=fill)
+            y += int(font.size * 1.35)
+
+        return y
+
+    # Top brand
+    center_text(FULL_PAGE_NAME, 80, brand_font, fill=(255, 80, 80, 255), width=28)
+
+    # Warning label
+    center_text("⚠️ භයානක අභිරහසක්", 250, small_font, fill=(255, 255, 255, 255), width=22)
+
+    # Main story
+    y = 560
+    y = center_text(story["hook"], y, title_font, fill=(255, 255, 255, 255), width=15)
+
+    y += 90
+    y = center_text(story["body"], y, body_font, fill=(235, 235, 235, 255), width=17)
+
+    # Ending question
+    center_text(story["end"], 1570, small_font, fill=(255, 80, 80, 255), width=20)
+
+    # Footer watermark
+    center_text("@Unknown World", 1760, brand_font, fill=(180, 180, 180, 220), width=25)
+
+    path = OUTPUT / "text.png"
+    img.save(path)
+    return path
+
+def create_music():
+    music_files = list(ASSETS.glob("*.mp3")) + list(ASSETS.glob("*.wav"))
+    if music_files:
+        return str(random.choice(music_files))
+    return None
+
+def create_reel():
+    story = random.choice(STORIES)
+
+    video_path = None
+
+    try:
+        video_path = get_pixabay_video()
+    except Exception as e:
+        print("Pixabay failed:", e)
+
+    if not video_path:
+        try:
+            video_path = get_pexels_video()
+        except Exception as e:
+            print("Pexels failed:", e)
+
+    if video_path:
+        bg = VideoFileClip(str(video_path))
+        bg = bg.resize(height=H)
+        bg = bg.crop(x_center=bg.w / 2, y_center=bg.h / 2, width=W, height=H)
+
+        if bg.duration > DURATION:
+            start = random.uniform(0, max(0, bg.duration - DURATION))
+            bg = bg.subclip(start, start + DURATION)
+        else:
+            bg = bg.loop(duration=DURATION)
+    else:
+        bg = make_fallback_background()
+
+    dark = ColorClip((W, H), color=(0, 0, 0), duration=DURATION).set_opacity(0.48)
+    red = ColorClip((W, H), color=(60, 0, 0), duration=DURATION).set_opacity(0.12)
+
+    text_png = make_text_png(story)
+    text = ImageClip(str(text_png)).set_duration(DURATION)
+
+    final = CompositeVideoClip([bg, dark, red, text], size=(W, H))
+    final = final.resize(lambda t: 1 + 0.008 * t)
+
+    music = create_music()
+    if music:
+        audio = AudioFileClip(music)
+        if audio.duration > DURATION:
+            audio = audio.subclip(0, DURATION)
+        else:
+            audio = audio.loop(duration=DURATION)
+        final = final.set_audio(audio.volumex(0.45))
+
+    out = OUTPUT / "unknown_world_reel.mp4"
+    final.write_videofile(
+        str(out),
+        fps=30,
+        codec="libx264",
+        audio_codec="aac",
+        threads=2
+    )
+
+    caption = f"""🌍 {FULL_PAGE_NAME}
+
+{story['hook']}
+
+{story['body']}
+
+{story['end']}
+
+#UnknownWorld #නොදන්නාලෝකය #SinhalaHorror #MysterySinhala #HorrorReels #SinhalaReels"""
+
+    (OUTPUT / "caption.txt").write_text(caption, encoding="utf-8")
+    print("DONE:", out)
+
+if __name__ == "__main__":
+    create_reel()
