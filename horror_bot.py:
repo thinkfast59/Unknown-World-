@@ -18,8 +18,8 @@ BASE = Path(__file__).parent
 OUTPUT = BASE / "output"
 OUTPUT.mkdir(exist_ok=True)
 
-PIXABAY_KEY = os.getenv("PIXABAY_KEY", "")
-PEXELS_KEY = os.getenv("PEXELS_KEY", "")
+PIXABAY_KEY = os.getenv("55948311-d474f36a1e037982880d2f139", "")
+PEXELS_KEY = os.getenv("mmN5PuJPe4qSOn06yXutlRjITFCv1OltnBH85iu1H3KFKQM7QzHtApF2", "")
 
 STORIES = [
     {
