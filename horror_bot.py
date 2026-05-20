@@ -9,6 +9,10 @@ from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import *
 from moviepy.audio.AudioClip import AudioClip
 
+# Fix for MoviePy + newer Pillow
+if not hasattr(Image, "ANTIALIAS"):
+    Image.ANTIALIAS = Image.Resampling.LANCZOS
+
 W, H = 1080, 1920
 DURATION = 24
 
@@ -41,6 +45,11 @@ STORIES = [
         "hook": "රෑ 3ට මේ පාරෙන් යන්න කවුරුත් කැමති නෑ...",
         "body": "සුදු ඇඳුම් ඇඳපු කෙනෙක් පාර අයිනේ හිටගෙන ඉන්නවා කියලා ගමේ අය කියනවා.",
         "end": "ඔයා මෙහෙම කතාවක් අහලා තියෙනවද?"
+    },
+    {
+        "hook": "පරණ පාසලේ ජනේලය රෑට තනියම ඇරෙනවා කියනවා...",
+        "body": "කාමරේ ඇතුළේ කවුරුත් නැති වෙලාවටත් පුටු ඇදෙන ශබ්දයක් ඇහෙනවා කියලා කියනවා.",
+        "end": "මේක අභිරහසක්ද?"
     }
 ]
 
@@ -51,13 +60,16 @@ VIDEO_KEYWORDS = [
     "fog night",
     "rain night",
     "dark road",
-    "moon night"
+    "moon night",
+    "creepy house"
 ]
 
 def font_path():
     paths = [
         "/usr/share/fonts/truetype/noto/NotoSansSinhala-Bold.ttf",
         "/usr/share/fonts/truetype/noto/NotoSansSinhala-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSerifSinhala-Bold.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSerifSinhala-Regular.ttf",
     ]
     for p in paths:
         if os.path.exists(p):
@@ -111,7 +123,11 @@ def get_pexels_video():
     q = random.choice(VIDEO_KEYWORDS)
     url = "https://api.pexels.com/videos/search"
     headers = {"Authorization": PEXELS_KEY}
-    params = {"query": q, "orientation": "portrait", "per_page": 15}
+    params = {
+        "query": q,
+        "orientation": "portrait",
+        "per_page": 15
+    }
 
     data = requests.get(url, headers=headers, params=params, timeout=30).json()
     videos = data.get("videos", [])
@@ -119,7 +135,11 @@ def get_pexels_video():
         return None
 
     item = random.choice(videos)
-    files = sorted(item.get("video_files", []), key=lambda x: x.get("width", 0), reverse=True)
+    files = sorted(
+        item.get("video_files", []),
+        key=lambda x: x.get("width", 0),
+        reverse=True
+    )
 
     if not files:
         return None
@@ -128,46 +148,59 @@ def get_pexels_video():
 
 def make_generated_horror_background():
     frames = []
+
     for frame in range(DURATION * 30):
         img = Image.new("RGB", (W, H), (3, 3, 8))
         draw = ImageDraw.Draw(img)
 
         # dark gradient
-        for y in range(0, H, 20):
+        for y in range(0, H, 24):
             shade = int(5 + (y / H) * 45)
-            draw.rectangle((0, y, W, y + 20), fill=(shade // 3, shade // 3, shade))
+            draw.rectangle(
+                (0, y, W, y + 24),
+                fill=(shade // 3, shade // 3, shade)
+            )
 
         # moon
-        mx = 810 + int(math.sin(frame / 60) * 15)
-        my = 250
-        draw.ellipse((mx, my, mx + 160, my + 160), fill=(160, 160, 170))
+        mx = 800 + int(math.sin(frame / 60) * 15)
+        my = 240
+        draw.ellipse((mx, my, mx + 150, my + 150), fill=(150, 150, 165))
 
-        # fog lines
+        # fog
         for i in range(8):
-            y = 900 + i * 80 + int(math.sin(frame / 20 + i) * 20)
-            draw.rectangle((0, y, W, y + 20), fill=(30, 30, 40))
+            fy = 880 + i * 90 + int(math.sin(frame / 20 + i) * 18)
+            draw.rectangle((0, fy, W, fy + 22), fill=(28, 28, 38))
 
         # shadow figure
-        x = 520 + int(math.sin(frame / 25) * 25)
+        x = 530 + int(math.sin(frame / 25) * 25)
         draw.ellipse((x - 45, 980, x + 45, 1080), fill=(0, 0, 0))
         draw.rectangle((x - 35, 1060, x + 35, 1320), fill=(0, 0, 0))
 
-        # random lightning
-        if frame % 150 in [0, 1, 2]:
-            draw.rectangle((0, 0, W, H), fill=(120, 120, 140))
+        # ground
+        draw.rectangle((0, 1450, W, H), fill=(2, 2, 5))
+
+        # lightning flash
+        if frame % 160 in [0, 1, 2]:
+            draw.rectangle((0, 0, W, H), fill=(110, 110, 130))
 
         frames.append(np.array(img))
 
-    return ImageSequenceClip(frames, fps=30)
+    return ImageSequenceClip(frames, fps=30).set_duration(DURATION)
 
 def make_text_png(story):
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    title_font = ImageFont.truetype(FONT, 72) if FONT else ImageFont.load_default()
-    body_font = ImageFont.truetype(FONT, 56) if FONT else ImageFont.load_default()
-    small_font = ImageFont.truetype(FONT, 42) if FONT else ImageFont.load_default()
-    brand_font = ImageFont.truetype(FONT, 38) if FONT else ImageFont.load_default()
+    if FONT:
+        title_font = ImageFont.truetype(FONT, 72)
+        body_font = ImageFont.truetype(FONT, 56)
+        small_font = ImageFont.truetype(FONT, 42)
+        brand_font = ImageFont.truetype(FONT, 38)
+    else:
+        title_font = ImageFont.load_default()
+        body_font = ImageFont.load_default()
+        small_font = ImageFont.load_default()
+        brand_font = ImageFont.load_default()
 
     def center_text(text, y, font, fill, width):
         lines = []
@@ -178,9 +211,16 @@ def make_text_png(story):
             bbox = draw.textbbox((0, 0), line, font=font)
             tw = bbox[2] - bbox[0]
             x = (W - tw) // 2
-            draw.text((x + 5, y + 5), line, font=font, fill=(0, 0, 0, 230))
+
+            # shadow
+            draw.text((x + 5, y + 5), line, font=font, fill=(0, 0, 0, 235))
+            # red glow
+            draw.text((x + 2, y + 2), line, font=font, fill=(120, 0, 0, 170))
+            # main
             draw.text((x, y), line, font=font, fill=fill)
-            y += int(font.size * 1.35)
+
+            y += int(font.size * 1.35) if hasattr(font, "size") else 60
+
         return y
 
     center_text(FULL_PAGE_NAME, 80, brand_font, (255, 80, 80, 255), 28)
@@ -208,34 +248,49 @@ def generated_horror_audio():
 
     return AudioClip(make_sound, duration=DURATION, fps=44100).volumex(0.45)
 
-def create_reel():
-    story = random.choice(STORIES)
-
+def prepare_background():
     video_path = None
 
     try:
         video_path = get_pixabay_video()
+        if video_path:
+            print("Using Pixabay video")
     except Exception as e:
         print("Pixabay failed:", e)
 
     if not video_path:
         try:
             video_path = get_pexels_video()
+            if video_path:
+                print("Using Pexels video")
         except Exception as e:
             print("Pexels failed:", e)
 
     if video_path:
         bg = VideoFileClip(str(video_path))
         bg = bg.resize(height=H)
-        bg = bg.crop(x_center=bg.w / 2, y_center=bg.h / 2, width=W, height=H)
+        bg = bg.crop(
+            x_center=bg.w / 2,
+            y_center=bg.h / 2,
+            width=W,
+            height=H
+        )
 
         if bg.duration > DURATION:
             start = random.uniform(0, max(0, bg.duration - DURATION))
             bg = bg.subclip(start, start + DURATION)
         else:
             bg = bg.loop(duration=DURATION)
-    else:
-        bg = make_generated_horror_background()
+
+        return bg
+
+    print("No outside video found. Creating Python horror background.")
+    return make_generated_horror_background()
+
+def create_reel():
+    story = random.choice(STORIES)
+
+    bg = prepare_background()
 
     dark = ColorClip((W, H), color=(0, 0, 0), duration=DURATION).set_opacity(0.45)
     red = ColorClip((W, H), color=(60, 0, 0), duration=DURATION).set_opacity(0.12)
@@ -243,7 +298,7 @@ def create_reel():
     text = ImageClip(str(make_text_png(story))).set_duration(DURATION)
 
     final = CompositeVideoClip([bg, dark, red, text], size=(W, H))
-    final = final.resize(lambda t: 1 + 0.008 * t)
+    final = final.set_duration(DURATION)
     final = final.set_audio(generated_horror_audio())
 
     out = OUTPUT / "unknown_world_reel.mp4"
@@ -253,7 +308,8 @@ def create_reel():
         fps=30,
         codec="libx264",
         audio_codec="aac",
-        threads=2
+        threads=2,
+        preset="medium"
     )
 
     caption = f"""🌍 {FULL_PAGE_NAME}
@@ -267,7 +323,9 @@ def create_reel():
 #UnknownWorld #නොදන්නාලෝකය #SinhalaHorror #MysterySinhala #HorrorReels #SinhalaReels"""
 
     (OUTPUT / "caption.txt").write_text(caption, encoding="utf-8")
+
     print("DONE:", out)
+    print("Caption saved:", OUTPUT / "caption.txt")
 
 if __name__ == "__main__":
     create_reel()
